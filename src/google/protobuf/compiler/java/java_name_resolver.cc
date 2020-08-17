@@ -91,7 +91,7 @@ std::string ClassNameWithoutPackage(const ServiceDescriptor* descriptor,
 }
 
 // Return true if a and b are equals (case insensitive).
-NameEquality CheckNameEquality(const string& a, const string& b) {
+NameEquality CheckNameEquality(const std::string& a, const std::string& b) {
   if (ToUpper(a) == ToUpper(b)) {
     if (a == b) {
       return NameEquality::EXACT_EQUAL;
@@ -210,9 +210,9 @@ std::string ClassNameResolver::GetClassName(const FileDescriptor* descriptor,
 // or outer class name.
 std::string ClassNameResolver::GetClassFullName(
     const std::string& name_without_package, const FileDescriptor* file,
-    bool immutable, bool multiple_files) {
+    bool immutable, bool is_own_file) {
   std::string result;
-  if (multiple_files) {
+  if (is_own_file) {
     result = FileJavaPackage(file, immutable);
   } else {
     result = GetClassName(file, immutable);
@@ -242,7 +242,7 @@ std::string ClassNameResolver::GetClassName(const ServiceDescriptor* descriptor,
                                             bool immutable) {
   return GetClassFullName(ClassNameWithoutPackage(descriptor, immutable),
                           descriptor->file(), immutable,
-                          MultipleJavaFiles(descriptor->file(), immutable));
+                          IsOwnFile(descriptor, immutable));
 }
 
 // Get the Java Class style full name of a message.

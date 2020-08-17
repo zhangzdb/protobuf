@@ -57,6 +57,7 @@ python/**/*.egg
 python/.eggs/
 python/.tox
 python/build/
+python/docs/_build/
 
 src/js_embed
 src/protoc
@@ -103,7 +104,7 @@ build_msvc
 # needed to trigger "pod install" to rerun the preinstall commands.
 Pods/
 
-# Comformance test output
+# Conformance test output
 conformance/.libs/
 conformance/com/
 conformance/conformance-cpp
@@ -139,6 +140,10 @@ composer.lock
 php/tests/generated/
 php/tests/old_protoc
 php/tests/protobuf/
+php/tests/core
+php/tests/vgcore*
+php/tests/multirequest.result
+php/tests/nohup.out
 php/ext/google/protobuf/.libs/
 php/ext/google/protobuf/Makefile.fragments
 php/ext/google/protobuf/Makefile.global
@@ -204,3 +209,6 @@ cmake/cmake-build-debug/
 # IntelliJ
 .idea
 *.iml
+
+# BenchmarkDotNet
+BenchmarkDotNet.Artifacts/

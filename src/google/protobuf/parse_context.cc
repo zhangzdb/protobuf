@@ -180,7 +180,7 @@ std::pair<const char*, bool> EpsCopyInputStream::DoneFallback(const char* ptr,
       if (PROTOBUF_PREDICT_FALSE(overrun != 0)) return {nullptr, true};
       GOOGLE_DCHECK(limit_ > 0);
       limit_end_ = buffer_end_;
-      // Distinquish ending on a pushed limit or ending on end-of-stream.
+      // Distinguish ending on a pushed limit or ending on end-of-stream.
       SetEndOfStream();
       return {ptr, true};
     }
@@ -197,22 +197,25 @@ const char* EpsCopyInputStream::SkipFallback(const char* ptr, int size) {
 }
 
 const char* EpsCopyInputStream::ReadStringFallback(const char* ptr, int size,
-                                                   std::string* s) {
-  s->clear();
-  // TODO(gerbens) assess security. At the moment its parity with
-  // CodedInputStream but it allows a payload to reserve large memory.
+                                                   std::string* str) {
+  str->clear();
   if (PROTOBUF_PREDICT_TRUE(size <= buffer_end_ - ptr + limit_)) {
-    s->reserve(size);
+    // Reserve the string up to a static safe size. If strings are bigger than
+    // this we proceed by growing the string as needed. This protects against
+    // malicious payloads making protobuf hold on to a lot of memory.
+    str->reserve(str->size() + std::min<int>(size, kSafeStringSize));
   }
-  return AppendStringFallback(ptr, size, s);
+  return AppendSize(ptr, size,
+                    [str](const char* p, int s) { str->append(p, s); });
 }
 
 const char* EpsCopyInputStream::AppendStringFallback(const char* ptr, int size,
                                                      std::string* str) {
-  // TODO(gerbens) assess security. At the moment its parity with
-  // CodedInputStream but it allows a payload to reserve large memory.
   if (PROTOBUF_PREDICT_TRUE(size <= buffer_end_ - ptr + limit_)) {
-    str->reserve(size);
+    // Reserve the string up to a static safe size. If strings are bigger than
+    // this we proceed by growing the string as needed. This protects against
+    // malicious payloads making protobuf hold on to a lot of memory.
+    str->reserve(str->size() + std::min<int>(size, kSafeStringSize));
   }
   return AppendSize(ptr, size,
                     [str](const char* p, int s) { str->append(p, s); });
@@ -424,14 +427,6 @@ const char* InlineGreedyStringParser(std::string* s, const char* ptr,
   return ctx->ReadString(ptr, size, s);
 }
 
-const char* InlineGreedyStringParserUTF8(std::string* s, const char* ptr,
-                                         ParseContext* ctx,
-                                         const char* field_name) {
-  auto p = InlineGreedyStringParser(s, ptr, ctx);
-  GOOGLE_PROTOBUF_PARSER_ASSERT(VerifyUTF8(*s, field_name));
-  return p;
-}
-
 
 template <typename T, bool sign>
 const char* VarintParser(void* object, const char* ptr, ParseContext* ctx) {
@@ -477,36 +472,6 @@ const char* PackedSInt64Parser(void* object, const char* ptr,
 
 const char* PackedEnumParser(void* object, const char* ptr, ParseContext* ctx) {
   return VarintParser<int, false>(object, ptr, ctx);
-}
-
-const char* PackedEnumParser(void* object, const char* ptr, ParseContext* ctx,
-                             bool (*is_valid)(int),
-                             InternalMetadataWithArenaLite* metadata,
-                             int field_num) {
-  return ctx->ReadPackedVarint(
-      ptr, [object, is_valid, metadata, field_num](uint64 val) {
-        if (is_valid(val)) {
-          static_cast<RepeatedField<int>*>(object)->Add(val);
-        } else {
-          WriteVarint(field_num, val, metadata->mutable_unknown_fields());
-        }
-      });
-}
-
-const char* PackedEnumParserArg(void* object, const char* ptr,
-                                ParseContext* ctx,
-                                bool (*is_valid)(const void*, int),
-                                const void* data,
-                                InternalMetadataWithArenaLite* metadata,
-                                int field_num) {
-  return ctx->ReadPackedVarint(
-      ptr, [object, is_valid, data, metadata, field_num](uint64 val) {
-        if (is_valid(data, val)) {
-          static_cast<RepeatedField<int>*>(object)->Add(val);
-        } else {
-          WriteVarint(field_num, val, metadata->mutable_unknown_fields());
-        }
-      });
 }
 
 const char* PackedBoolParser(void* object, const char* ptr, ParseContext* ctx) {
@@ -607,12 +572,6 @@ const char* UnknownFieldParse(uint32 tag, std::string* unknown, const char* ptr,
                               ParseContext* ctx) {
   UnknownFieldLiteParserHelper field_parser(unknown);
   return FieldParser(tag, field_parser, ptr, ctx);
-}
-
-const char* UnknownFieldParse(uint32 tag,
-                              InternalMetadataWithArenaLite* metadata,
-                              const char* ptr, ParseContext* ctx) {
-  return UnknownFieldParse(tag, metadata->mutable_unknown_fields(), ptr, ctx);
 }
 
 }  // namespace internal

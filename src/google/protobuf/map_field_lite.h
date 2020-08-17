@@ -50,7 +50,7 @@ namespace protobuf {
 namespace internal {
 
 // This class provides access to map field using generated api. It is used for
-// internal generated message implentation only. Users should never use this
+// internal generated message implementation only. Users should never use this
 // directly.
 template <typename Derived, typename Key, typename T,
           WireFormatLite::FieldType key_wire_type,
@@ -108,13 +108,13 @@ class MapFieldLite {
     return parser._InternalParse(ptr, ctx);
   }
 
-  template <typename Metadata>
+  template <typename UnknownType>
   const char* ParseWithEnumValidation(const char* ptr, ParseContext* ctx,
                                       bool (*is_valid)(int), uint32 field_num,
-                                      Metadata* metadata) {
+                                      InternalMetadata* metadata) {
     typename Derived::template Parser<MapFieldLite, Map<Key, T>> parser(this);
-    return parser.ParseWithEnumValidation(ptr, ctx, is_valid, field_num,
-                                          metadata);
+    return parser.template ParseWithEnumValidation<UnknownType>(
+        ptr, ctx, is_valid, field_num, metadata);
   }
 
  private:
@@ -125,36 +125,40 @@ class MapFieldLite {
   friend class ::PROTOBUF_NAMESPACE_ID::Arena;
 };
 
-template <typename T, typename Metadata>
+template <typename UnknownType, typename T>
 struct EnumParseWrapper {
   const char* _InternalParse(const char* ptr, ParseContext* ctx) {
-    return map_field->ParseWithEnumValidation(ptr, ctx, is_valid, field_num,
-                                              metadata);
+    return map_field->template ParseWithEnumValidation<UnknownType>(
+        ptr, ctx, is_valid, field_num, metadata);
   }
   T* map_field;
   bool (*is_valid)(int);
   uint32 field_num;
-  Metadata* metadata;
+  InternalMetadata* metadata;
 };
 
 // Helper function because the typenames of maps are horrendous to print. This
 // leverages compiler type deduction, to keep all type data out of the
 // generated code
-template <typename T, typename Metadata>
-EnumParseWrapper<T, Metadata> InitEnumParseWrapper(T* map_field,
-                                                   bool (*is_valid)(int),
-                                                   uint32 field_num,
-                                                   Metadata* metadata) {
-  return EnumParseWrapper<T, Metadata>{map_field, is_valid, field_num,
-                                       metadata};
+template <typename UnknownType, typename T>
+EnumParseWrapper<UnknownType, T> InitEnumParseWrapper(
+    T* map_field, bool (*is_valid)(int), uint32 field_num,
+    InternalMetadata* metadata) {
+  return EnumParseWrapper<UnknownType, T>{map_field, is_valid, field_num,
+                                          metadata};
 }
 
 // True if IsInitialized() is true for value field in all elements of t. T is
 // expected to be message.  It's useful to have this helper here to keep the
 // protobuf compiler from ever having to emit loops in IsInitialized() methods.
 // We want the C++ compiler to inline this or not as it sees fit.
-template <typename Key, typename T>
-bool AllAreInitialized(const Map<Key, T>& t) {
+template <typename Derived, typename Key, typename T,
+          WireFormatLite::FieldType key_wire_type,
+          WireFormatLite::FieldType value_wire_type, int default_enum_value>
+bool AllAreInitialized(
+    const MapFieldLite<Derived, Key, T, key_wire_type, value_wire_type,
+                       default_enum_value>& field) {
+  const auto& t = field.GetMap();
   for (typename Map<Key, T>::const_iterator it = t.begin(); it != t.end();
        ++it) {
     if (!it->second.IsInitialized()) return false;

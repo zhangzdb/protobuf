@@ -66,8 +66,13 @@ inline std::string MacroPrefix(const Options& options) {
 }
 
 inline std::string DeprecatedAttribute(const Options& options,
-                                       bool deprecated) {
-  return deprecated ? "PROTOBUF_DEPRECATED " : "";
+                                       const FieldDescriptor* d) {
+  return d->options().deprecated() ? "PROTOBUF_DEPRECATED " : "";
+}
+
+inline std::string DeprecatedAttribute(const Options& options,
+                                       const EnumValueDescriptor* d) {
+  return d->options().deprecated() ? "PROTOBUF_DEPRECATED_ENUM " : "";
 }
 
 // Commonly-used separator comments.  Thick is a line of '=', thin is a line
@@ -77,6 +82,10 @@ extern const char kThinSeparator[];
 
 void SetCommonVars(const Options& options,
                    std::map<std::string, std::string>* variables);
+
+void SetUnknkownFieldsVariable(const Descriptor* descriptor,
+                               const Options& options,
+                               std::map<std::string, std::string>* variables);
 
 bool GetBootstrapBasename(const Options& options, const std::string& basename,
                           std::string* bootstrap_basename);
@@ -124,6 +133,10 @@ inline std::string ClassName(const EnumDescriptor* descriptor, bool qualified) {
   return qualified ? QualifiedClassName(descriptor, Options())
                    : ClassName(descriptor);
 }
+
+std::string QualifiedExtensionName(const FieldDescriptor* d,
+                                   const Options& options);
+std::string QualifiedExtensionName(const FieldDescriptor* d);
 
 // Type name of default instance.
 std::string DefaultInstanceType(const Descriptor* descriptor,
@@ -334,6 +347,12 @@ inline bool IsLazy(const FieldDescriptor* field, const Options& options) {
          !options.opensource_runtime;
 }
 
+// Returns true if "field" is used.
+inline bool IsFieldUsed(const FieldDescriptor* /*field*/,
+                        const Options& /*options*/) {
+  return true;
+}
+
 // Does the file contain any definitions that need extension_set.h?
 bool HasExtensionsOrExtendableMessage(const FileDescriptor* file);
 
@@ -409,6 +428,22 @@ inline bool HasFieldPresence(const FileDescriptor* file) {
   return file->syntax() != FileDescriptor::SYNTAX_PROTO3;
 }
 
+inline bool HasHasbit(const FieldDescriptor* field) {
+  // This predicate includes proto3 message fields only if they have "optional".
+  //   Foo submsg1 = 1;           // HasHasbit() == false
+  //   optional Foo submsg2 = 2;  // HasHasbit() == true
+  // This is slightly odd, as adding "optional" to a singular proto3 field does
+  // not change the semantics or API. However whenever any field in a message
+  // has a hasbit, it forces reflection to include hasbit offsets for *all*
+  // fields, even if almost all of them are set to -1 (no hasbit). So to avoid
+  // causing a sudden size regression for ~all proto3 messages, we give proto3
+  // message fields a hasbit only if "optional" is present. If the user is
+  // explicitly writing "optional", it is likely they are writing it on
+  // primitive fields also.
+  return (field->has_optional_keyword() || field->is_required()) &&
+         !field->options().weak();
+}
+
 // Returns true if 'enum' semantics are such that unknown values are preserved
 // in the enum field itself, rather than going to the UnknownFieldSet.
 inline bool HasPreservingUnknownEnumSemantics(const FieldDescriptor* field) {
@@ -470,16 +505,32 @@ inline std::string IncludeGuard(const FileDescriptor* file, bool pb_h,
   }
 }
 
+// Returns the OptimizeMode for this file, furthermore it updates a status
+// bool if has_opt_codesize_extension is non-null. If this status bool is true
+// it means this file contains an extension that itself is defined as
+// optimized_for = CODE_SIZE.
+FileOptions_OptimizeMode GetOptimizeFor(const FileDescriptor* file,
+                                        const Options& options,
+                                        bool* has_opt_codesize_extension);
 inline FileOptions_OptimizeMode GetOptimizeFor(const FileDescriptor* file,
                                                const Options& options) {
-  switch (options.enforce_mode) {
-    case EnforceOptimizeMode::kSpeed:
-      return FileOptions::SPEED;
-    case EnforceOptimizeMode::kLiteRuntime:
-      return FileOptions::LITE_RUNTIME;
-    case EnforceOptimizeMode::kNoEnforcement:
-    default:
-      return file->options().optimize_for();
+  return GetOptimizeFor(file, options, nullptr);
+}
+inline bool NeedsEagerDescriptorAssignment(const FileDescriptor* file,
+                                           const Options& options) {
+  bool has_opt_codesize_extension;
+  if (GetOptimizeFor(file, options, &has_opt_codesize_extension) ==
+          FileOptions::CODE_SIZE &&
+      has_opt_codesize_extension) {
+    // If this filedescriptor contains an extension from another file which
+    // is optimized_for = CODE_SIZE. We need to be careful in the ordering so
+    // we eagerly build the descriptors in the dependencies before building
+    // the descriptors of this file.
+    return true;
+  } else {
+    // If we have a generated code based parser we never need eager
+    // initialization of descriptors of our deps.
+    return false;
   }
 }
 
@@ -756,7 +807,15 @@ class PROTOC_EXPORT NamespaceOpener {
   std::vector<std::string> name_stack_;
 };
 
-std::string GetUtf8Suffix(const FieldDescriptor* field, const Options& options);
+enum Utf8CheckMode {
+  STRICT = 0,  // Parsing will fail if non UTF-8 data is in string fields.
+  VERIFY = 1,  // Only log an error but parsing will succeed.
+  NONE = 2,    // No UTF-8 check.
+};
+
+Utf8CheckMode GetUtf8CheckMode(const FieldDescriptor* field,
+                               const Options& options);
+
 void GenerateUtf8CheckCodeForString(const FieldDescriptor* field,
                                     const Options& options, bool for_parse,
                                     const char* parameters,
@@ -830,7 +889,9 @@ struct OneOfRangeImpl {
   };
 
   Iterator begin() const { return {0, descriptor}; }
-  Iterator end() const { return {descriptor->oneof_decl_count(), descriptor}; }
+  Iterator end() const {
+    return {descriptor->real_oneof_decl_count(), descriptor};
+  }
 
   const Descriptor* descriptor;
 };

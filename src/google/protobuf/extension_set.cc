@@ -1063,7 +1063,7 @@ void ExtensionSet::InternalExtensionMergeFrom(
 }
 
 void ExtensionSet::Swap(ExtensionSet* x) {
-  if (GetArenaNoVirtual() == x->GetArenaNoVirtual()) {
+  if (GetArena() == x->GetArena()) {
     using std::swap;
     swap(flat_capacity_, x->flat_capacity_);
     swap(flat_size_, x->flat_size_);
@@ -1091,7 +1091,7 @@ void ExtensionSet::SwapExtension(ExtensionSet* other, int number) {
   }
 
   if (this_ext != NULL && other_ext != NULL) {
-    if (GetArenaNoVirtual() == other->GetArenaNoVirtual()) {
+    if (GetArena() == other->GetArena()) {
       using std::swap;
       swap(*this_ext, *other_ext);
     } else {
@@ -1112,7 +1112,7 @@ void ExtensionSet::SwapExtension(ExtensionSet* other, int number) {
   }
 
   if (this_ext == NULL) {
-    if (GetArenaNoVirtual() == other->GetArenaNoVirtual()) {
+    if (GetArena() == other->GetArena()) {
       *Insert(number).first = *other_ext;
     } else {
       InternalExtensionMergeFrom(number, *other_ext);
@@ -1122,7 +1122,7 @@ void ExtensionSet::SwapExtension(ExtensionSet* other, int number) {
   }
 
   if (other_ext == NULL) {
-    if (GetArenaNoVirtual() == other->GetArenaNoVirtual()) {
+    if (GetArena() == other->GetArena()) {
       *other->Insert(number).first = *this_ext;
     } else {
       other->InternalExtensionMergeFrom(number, *this_ext);
@@ -1196,27 +1196,28 @@ bool ExtensionSet::ParseField(uint32 tag, io::CodedInputStream* input,
   }
 }
 
-const char* ExtensionSet::ParseField(
-    uint64 tag, const char* ptr, const MessageLite* containing_type,
-    internal::InternalMetadataWithArenaLite* metadata,
-    internal::ParseContext* ctx) {
+const char* ExtensionSet::ParseField(uint64 tag, const char* ptr,
+                                     const MessageLite* containing_type,
+                                     internal::InternalMetadata* metadata,
+                                     internal::ParseContext* ctx) {
   GeneratedExtensionFinder finder(containing_type);
   int number = tag >> 3;
   bool was_packed_on_wire;
   ExtensionInfo extension;
   if (!FindExtensionInfoFromFieldNumber(tag & 7, number, &finder, &extension,
                                         &was_packed_on_wire)) {
-    return UnknownFieldParse(tag, metadata->mutable_unknown_fields(), ptr, ctx);
+    return UnknownFieldParse(
+        tag, metadata->mutable_unknown_fields<std::string>(), ptr, ctx);
   }
-  return ParseFieldWithExtensionInfo(number, was_packed_on_wire, extension,
-                                     metadata, ptr, ctx);
+  return ParseFieldWithExtensionInfo<std::string>(
+      number, was_packed_on_wire, extension, metadata, ptr, ctx);
 }
 
 const char* ExtensionSet::ParseMessageSetItem(
     const char* ptr, const MessageLite* containing_type,
-    internal::InternalMetadataWithArenaLite* metadata,
-    internal::ParseContext* ctx) {
-  return ParseMessageSetItemTmpl(ptr, containing_type, metadata, ctx);
+    internal::InternalMetadata* metadata, internal::ParseContext* ctx) {
+  return ParseMessageSetItemTmpl<MessageLite, std::string>(ptr, containing_type,
+                                                           metadata, ctx);
 }
 
 bool ExtensionSet::ParseFieldWithExtensionInfo(int number,
@@ -1462,9 +1463,9 @@ bool ExtensionSet::ParseMessageSet(io::CodedInputStream* input,
   return ParseMessageSetLite(input, &finder, &skipper);
 }
 
-uint8* ExtensionSet::InternalSerializeWithCachedSizesToArray(
-    int start_field_number, int end_field_number, uint8* target,
-    io::EpsCopyOutputStream* stream) const {
+uint8* ExtensionSet::_InternalSerialize(int start_field_number,
+                                        int end_field_number, uint8* target,
+                                        io::EpsCopyOutputStream* stream) const {
   if (PROTOBUF_PREDICT_FALSE(is_large())) {
     const auto& end = map_.large->end();
     for (auto it = map_.large->lower_bound(start_field_number);
@@ -2010,7 +2011,7 @@ uint8* ExtensionSet::Extension::InternalSerializeFieldWithCachedSizesToArray(
   case WireFormatLite::TYPE_##UPPERCASE:                                 \
     for (int i = 0; i < repeated_##LOWERCASE##_value->size(); i++) {     \
       target = stream->EnsureSpace(target);                              \
-      target = WireFormatLite::InternalWrite##CAMELCASE##ToArray(        \
+      target = WireFormatLite::InternalWrite##CAMELCASE(                 \
           number, repeated_##LOWERCASE##_value->Get(i), target, stream); \
     }                                                                    \
     break
@@ -2053,8 +2054,8 @@ uint8* ExtensionSet::Extension::InternalSerializeFieldWithCachedSizesToArray(
 #undef HANDLE_TYPE
       case WireFormatLite::TYPE_GROUP:
         target = stream->EnsureSpace(target);
-        target = WireFormatLite::InternalWriteGroupToArray(
-            number, *message_value, target, stream);
+        target = WireFormatLite::InternalWriteGroup(number, *message_value,
+                                                    target, stream);
         break;
       case WireFormatLite::TYPE_MESSAGE:
         if (is_lazy) {
@@ -2062,8 +2063,8 @@ uint8* ExtensionSet::Extension::InternalSerializeFieldWithCachedSizesToArray(
               lazymessage_value->WriteMessageToArray(number, target, stream);
         } else {
           target = stream->EnsureSpace(target);
-          target = WireFormatLite::InternalWriteMessageToArray(
-              number, *message_value, target, stream);
+          target = WireFormatLite::InternalWriteMessage(number, *message_value,
+                                                        target, stream);
         }
         break;
     }
@@ -2094,7 +2095,7 @@ ExtensionSet::Extension::InternalSerializeMessageSetItemWithCachedSizesToArray(
     target = lazymessage_value->WriteMessageToArray(
         WireFormatLite::kMessageSetMessageNumber, target, stream);
   } else {
-    target = WireFormatLite::InternalWriteMessageToArray(
+    target = WireFormatLite::InternalWriteMessage(
         WireFormatLite::kMessageSetMessageNumber, *message_value, target,
         stream);
   }
